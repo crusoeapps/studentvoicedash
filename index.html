@@ -536,39 +536,130 @@ function renderTR(){
   const all=[...new Set(rows.map(r=>r[cols.teacher]).filter(Boolean))].sort();
   all.filter(t=>sel.includes(t)).forEach(t=>out.appendChild(buildTRCard(t)));
 }
+function overallScore(f){
+  const vals=[];
+  cols.likert.forEach(k=>{if(!k)return;f.forEach(r=>{const v=parseInt(r[k]);if(v>=1&&v<=4)vals.push(v);});});
+  if(!vals.length)return null;
+  const agree=vals.filter(v=>v>=3).length;
+  return Math.round(agree/vals.length*100);
+}
+
+function scoreColour(s){
+  if(s===null)return"#888";
+  if(s>=75)return"#2E7D4F";
+  if(s>=55)return"#F5A742";
+  return"#D64A1A";
+}
+
 function buildTRCard(teacher){
   const tr=rows.filter(r=>r[cols.teacher]===teacher);
-  const subjects=[...new Set(tr.map(r=>r[cols.subject]).filter(Boolean))].sort().join(", ");
+  const subjects=[...new Set(tr.map(r=>r[cols.subject]).filter(Boolean))].sort();
+  const subjectStr=subjects.join(", ");
+
+  // Overall stats across all teacher's classes
   const allStats=cols.likert.map(k=>{if(!k)return null;const a=pctAgree(rows,k),t=pctAgree(tr,k);if(!t)return null;return{key:k,tPct:t.pct,aPct:a?a.pct:null,diff:a?t.pct-a.pct:null};}).filter(Boolean);
   const strongest=allStats.length?[...allStats].sort((a,b)=>(b.diff||b.tPct)-(a.diff||a.tPct))[0]:null;
   const bigDiffs=allStats.filter(q=>q.diff!==null&&Math.abs(q.diff)>=10);
+  const score=overallScore(tr);
+
   const card=document.createElement("div");card.className="tr-card";
 
-  let html=`<div class="tr-hdr"><div><div class="tr-name">${esc(teacher)}</div><div class="tr-meta">Subjects: ${esc(subjects||"—")} · ${tr.length} response${tr.length!==1?"s":""}</div></div><div class="tr-stat"><div class="n">${tr.length}</div><div class="l">Responses</div></div></div>`;
-  if(strongest)html+=`<div class="strong-box">★ <strong>Strongest area:</strong> Students rated "${esc(strongest.key)}" at ${strongest.tPct}% agreement${strongest.diff!==null&&strongest.diff>0?` — <strong style="color:#2E7D4F">+${strongest.diff}pp above</strong> school average of ${strongest.aPct}%`:strongest.aPct!==null?` (school avg: ${strongest.aPct}%)`:""}</div>`;
-  if(bigDiffs.length){
-    html+=`<div class="sec-lbl">Domain Comparison (10pp+ difference)</div><table style="width:100%;border-collapse:collapse;margin-bottom:14px"><thead><tr>${["Question","Your classes","School avg","Diff"].map(h=>`<th style="padding:6px 10px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;text-align:${h==="Question"?"left":"center"};border-bottom:2px solid var(--border);background:var(--bg)">${h}</th>`).join("")}</tr></thead><tbody>${bigDiffs.map(q=>`<tr><td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border)">${esc(q.key)}</td><td style="padding:6px 10px;font-size:13px;font-weight:700;text-align:center;border-bottom:1px solid var(--border)">${q.tPct}%</td><td style="padding:6px 10px;font-size:12px;text-align:center;color:var(--muted);border-bottom:1px solid var(--border)">${q.aPct!==null?q.aPct+"%":"—"}</td><td style="padding:6px 10px;text-align:center;font-weight:700;border-bottom:1px solid var(--border);color:${q.diff>0?"#2E7D4F":"#D64A1A"}">${q.diff>0?"+":""}${q.diff}pp</td></tr>`).join("")}</tbody></table>`;
-  }
-  card.innerHTML=html;
+  // ── Header with overall score ──
+  let h=`<div class="tr-hdr">
+    <div>
+      <div class="tr-name">${esc(teacher)}</div>
+      <div class="tr-meta">Classes: ${esc(subjectStr||"—")} &nbsp;·&nbsp; ${tr.length} response${tr.length!==1?"s":""}</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <div class="tr-stat" style="border-color:${scoreColour(score)}">
+        <div class="n" style="color:${scoreColour(score)}">${score!==null?score+"%":"—"}</div>
+        <div class="l">Overall score</div>
+      </div>
+      <div class="tr-stat">
+        <div class="n">${tr.length}</div>
+        <div class="l">Responses</div>
+      </div>
+    </div>
+  </div>`;
 
-  // Likert legend
-  const leg=document.createElement("div");leg.id="legend";leg.style.marginBottom="4px";
+  // Overall score explanation
+  if(score!==null){
+    h+=`<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">
+      Overall score is the percentage of all Likert responses rated <strong>Agree</strong> or <strong>Strongly agree</strong> across all 8 questions and all classes.
+      ${score>=75?'<span style="color:#2E7D4F;font-weight:700"> ✓ Above 75% — strong overall result.</span>':score>=55?'<span style="color:#E65100;font-weight:700"> ⚠ 55–75% — some areas to develop.</span>':'<span style="color:#D64A1A;font-weight:700"> ⚠ Below 55% — review recommended.</span>'}
+    </div>`;
+  }
+
+  // Strongest area callout
+  if(strongest)h+=`<div class="strong-box">★ <strong>Strongest area across all classes:</strong> Students rated "${esc(strongest.key)}" at ${strongest.tPct}% agreement${strongest.diff!==null&&strongest.diff>0?` — <strong style="color:#2E7D4F">+${strongest.diff}pp above</strong> school average of ${strongest.aPct}%`:strongest.aPct!==null?` (school avg: ${strongest.aPct}%)`:""}.</div>`;
+
+  // Domain comparison table
+  if(bigDiffs.length){
+    h+=`<div class="sec-lbl">Domain Comparison (10pp+ difference from school average)</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:14px">
+      <thead><tr>${["Question","Your classes","School avg","Diff"].map(col=>`<th style="padding:6px 10px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;text-align:${col==="Question"?"left":"center"};border-bottom:2px solid var(--border);background:var(--bg)">${col}</th>`).join("")}</tr></thead>
+      <tbody>${bigDiffs.map(q=>`<tr><td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border)">${esc(q.key)}</td><td style="padding:6px 10px;font-size:13px;font-weight:700;text-align:center;border-bottom:1px solid var(--border)">${q.tPct}%</td><td style="padding:6px 10px;font-size:12px;text-align:center;color:var(--muted);border-bottom:1px solid var(--border)">${q.aPct!==null?q.aPct+"%":"—"}</td><td style="padding:6px 10px;text-align:center;font-weight:700;border-bottom:1px solid var(--border);color:${q.diff>0?"#2E7D4F":"#D64A1A"}">${q.diff>0?"+":""}${q.diff}pp</td></tr>`).join("")}</tbody>
+    </table>`;
+  }
+  card.innerHTML=h;
+
+  // ── Legend (shared) ──
+  const leg=document.createElement("div");
+  leg.style.cssText="display:flex;gap:18px;align-items:center;flex-wrap:wrap;background:var(--bg);border-radius:6px;padding:8px 14px;margin-bottom:16px";
   leg.innerHTML=LABS.map((l,i)=>`<div class="leg"><div class="leg-sw" style="background:${SEG[i]}"></div>${l}</div>`).join("");
   card.appendChild(leg);
 
-  const st=document.createElement("div");st.className="sec-lbl";st.textContent="Class Perceptions";card.appendChild(st);
-  const lw=document.createElement("div");lw.style.cssText="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:4px 20px;margin-bottom:14px";
-  renderLikertInto(lw,tr);card.appendChild(lw);
+  // ── Per-class breakdown ──
+  subjects.forEach((subj,si)=>{
+    const cr=tr.filter(r=>r[cols.subject]===subj);
+    if(!cr.length)return;
+    const cs=overallScore(cr);
+    const uid="tc_"+teacher.replace(/[^a-z0-9]/gi,"_")+"_"+si;
 
-  const st2=document.createElement("div");st2.className="sec-lbl";st2.textContent="Student Feedback";card.appendChild(st2);
-  const bb=document.createElement("div");bb.style.cssText="display:flex;gap:14px;flex-wrap:wrap";
-  const uid="tc_"+teacher.replace(/[^a-z0-9]/gi,"_");
-  const gwc=document.createElement("div");gwc.className="hcard";gwc.innerHTML=`<div class="htitle">What is going well?</div><div id="gw_${uid}"></div>`;
-  const wcc=document.createElement("div");wcc.className="hcard";wcc.innerHTML=`<div class="htitle">What would you change?</div><div id="wc_${uid}"></div>`;
-  bb.appendChild(gwc);bb.appendChild(wcc);card.appendChild(bb);
-  requestAnimationFrame(()=>{renderHoriz("gw_"+uid,"#2E7D4F",tr,cols.gw,GW_OPTS);renderHoriz("wc_"+uid,"#8B4A82",tr,cols.wc,WC_OPTS);});
+    const section=document.createElement("div");
+    section.style.cssText="margin-bottom:24px;border:1px solid var(--border);border-radius:10px;overflow:hidden";
+
+    // Class header
+    const chdr=document.createElement("div");
+    chdr.style.cssText="background:var(--bg);padding:10px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)";
+    chdr.innerHTML=`
+      <div style="font-size:14px;font-weight:800;color:var(--text)">${esc(subj)}</div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-size:12px;color:var(--muted)">${cr.length} response${cr.length!==1?"s":""}</span>
+        ${cs!==null?`<div style="background:${scoreColour(cs)};color:#fff;font-size:13px;font-weight:800;padding:4px 12px;border-radius:20px">${cs}% positive</div>`:""}
+      </div>`;
+    section.appendChild(chdr);
+
+    const inner=document.createElement("div");
+    inner.style.cssText="padding:14px 18px";
+
+    // Likert bars for this class
+    const lw=document.createElement("div");
+    lw.style.cssText="margin-bottom:14px";
+    renderLikertInto(lw,cr);
+    inner.appendChild(lw);
+
+    // Feedback bars side by side
+    const bb=document.createElement("div");
+    bb.style.cssText="display:flex;gap:12px;flex-wrap:wrap";
+    const gwc=document.createElement("div");gwc.className="hcard";gwc.style.flex="1";gwc.style.minWidth="240px";
+    gwc.innerHTML=`<div class="htitle" style="color:#2E7D4F;font-weight:700">✓ What is going well</div><div id="gw_${uid}"></div>`;
+    const wcc=document.createElement("div");wcc.className="hcard";wcc.style.flex="1";wcc.style.minWidth="240px";
+    wcc.innerHTML=`<div class="htitle" style="color:#8B4A82;font-weight:700">→ Recommendations to improve</div><div id="wc_${uid}"></div>`;
+    bb.appendChild(gwc);bb.appendChild(wcc);
+    inner.appendChild(bb);
+    section.appendChild(inner);
+    card.appendChild(section);
+
+    requestAnimationFrame(()=>{
+      renderHoriz("gw_"+uid,"#2E7D4F",cr,cols.gw,GW_OPTS);
+      renderHoriz("wc_"+uid,"#8B4A82",cr,cols.wc,WC_OPTS);
+    });
+  });
+
   return card;
 }
+
 function renderLikertInto(container,f){
   cols.likert.forEach(k=>{
     if(!k)return;
