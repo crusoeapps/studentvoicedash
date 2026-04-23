@@ -67,6 +67,20 @@ body{font-family:'DM Sans','Segoe UI',sans-serif;background:var(--bg);color:var(
 input[type=date]{padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit;color:var(--text);background:var(--card);cursor:pointer}
 input[type=date]:hover{border-color:var(--sa)}
 .clear-date{padding:5px 8px;border:1.5px solid var(--border);border-radius:5px;background:var(--bg);color:var(--muted);font-size:12px;cursor:pointer}
+/* ── Checkbox dropdown ── */
+.cbd{position:relative}
+.cbd-btn{width:100%;padding:6px 26px 6px 10px;border:1.5px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);font-size:13px;cursor:pointer;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:5px;font-family:inherit;min-width:150px}
+.cbd-btn:hover,.cbd-btn.open{border-color:var(--sa)}
+.cbd-lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px}
+.cbd-arr{font-size:9px;color:var(--muted);flex-shrink:0;transition:transform .18s}
+.cbd-btn.open .cbd-arr{transform:rotate(180deg)}
+.cbd-panel{display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:100%;background:var(--card);border:1.5px solid var(--border);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.1);z-index:9999;max-height:260px;overflow-y:auto;padding:5px 0}
+.cbd-panel.open{display:block}
+.cbd-item{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;font-size:13px;user-select:none}
+.cbd-item:hover{background:var(--bg)}
+.cbd-item input[type=checkbox]{width:14px;height:14px;accent-color:var(--sa);cursor:pointer;flex-shrink:0}
+.cbd-item.cbd-all{font-weight:700;border-bottom:1px solid var(--border);padding-bottom:9px;margin-bottom:3px}
+
 #filter-right{margin-left:auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 #resp-count{font-size:13px;color:var(--muted)}
 #resp-count strong{color:var(--text)}
@@ -184,11 +198,21 @@ select[multiple]{padding:4px 8px;border:1.5px solid var(--border);border-radius:
         </div>
         <div class="fg">
           <label>Subject / Class</label>
-          <select id="f-subject" onchange="apply()"></select>
+          <div class="cbd" id="cbd-subject">
+            <button class="cbd-btn" onclick="toggleCBD('cbd-subject')" type="button">
+              <span class="cbd-lbl" id="cbd-subject-lbl">All</span><span class="cbd-arr">▾</span>
+            </button>
+            <div class="cbd-panel" id="cbd-subject-panel"></div>
+          </div>
         </div>
         <div class="fg">
           <label>Gender</label>
-          <select id="f-gender" onchange="apply()"></select>
+          <div class="cbd" id="cbd-gender">
+            <button class="cbd-btn" onclick="toggleCBD('cbd-gender')" type="button">
+              <span class="cbd-lbl" id="cbd-gender-lbl">All</span><span class="cbd-arr">▾</span>
+            </button>
+            <div class="cbd-panel" id="cbd-gender-panel"></div>
+          </div>
         </div>
         <div class="fg" id="fg-date" style="display:none">
           <label>Date Range</label>
@@ -243,7 +267,9 @@ select[multiple]{padding:4px 8px;border:1.5px solid var(--border);border-radius:
         <div style="margin-left:auto;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
           <button class="btn-sm" onclick="selAllTR()">Select All</button>
           <button class="btn-primary" onclick="window.print()">🖨 Print</button>
+          <button class="btn-primary" id="btn-pdf" onclick="downloadPDFReports()" style="background:#2E7D4F;border-color:#2E7D4F">⬇ Download PDF Reports</button>
         </div>
+        <div id="pdf-status" style="width:100%;font-size:12px;color:var(--muted);margin-top:6px;min-height:16px"></div>
       </div>
       <div id="tr-output"></div>
     </div>
@@ -398,11 +424,66 @@ function activateTab(t){
 }
 
 // Filters
+// ── Checkbox dropdown helpers ──
+function buildCBD(id, opts){
+  const panel=el(id+'-panel'), lbl=el(id+'-lbl');
+  panel.innerHTML='';
+  // Select All row
+  const allItem=document.createElement('div');
+  allItem.className='cbd-item cbd-all';
+  allItem.innerHTML=`<input type="checkbox" id="${id}-all" checked><label for="${id}-all" style="cursor:pointer">Select all</label>`;
+  panel.appendChild(allItem);
+  // Individual options
+  opts.forEach(opt=>{
+    const item=document.createElement('div');item.className='cbd-item';
+    const sid=id+'-'+opt.replace(/[^a-z0-9]/gi,'_');
+    item.innerHTML=`<input type="checkbox" id="${sid}" value="${esc(opt)}" checked><label for="${sid}" style="cursor:pointer">${esc(opt)}</label>`;
+    panel.appendChild(item);
+  });
+  // Change listener
+  panel.addEventListener('change',e=>{
+    const allCb=panel.querySelector('#'+id+'-all');
+    const optCbs=[...panel.querySelectorAll('input:not([id$="-all"])')];
+    if(e.target.id===id+'-all') optCbs.forEach(c=>c.checked=allCb.checked);
+    else allCb.checked=optCbs.every(c=>c.checked);
+    updateCBDLabel(id,opts);
+    apply();
+  });
+  updateCBDLabel(id,opts);
+}
+
+function updateCBDLabel(id,opts){
+  const panel=el(id+'-panel');
+  const optCbs=[...panel.querySelectorAll('input:not([id$="-all"])')];
+  const sel=optCbs.filter(c=>c.checked).map(c=>c.value);
+  const lbl=el(id+'-lbl');
+  if(!sel.length)lbl.textContent='None';
+  else if(sel.length===opts.length)lbl.textContent='All';
+  else if(sel.length===1)lbl.textContent=sel[0];
+  else lbl.textContent=sel.length+' selected';
+}
+
+function getCBDSelected(id){
+  const panel=el(id+'-panel');
+  if(!panel)return null;
+  return [...panel.querySelectorAll('input:not([id$="-all"])')].filter(c=>c.checked).map(c=>c.value);
+}
+
+function toggleCBD(id){
+  const btn=el(id).querySelector('.cbd-btn');
+  const panel=el(id).querySelector('.cbd-panel');
+  const isOpen=panel.classList.contains('open');
+  // Close all open panels first
+  document.querySelectorAll('.cbd-panel.open').forEach(p=>p.classList.remove('open'));
+  document.querySelectorAll('.cbd-btn.open').forEach(b=>b.classList.remove('open'));
+  if(!isOpen){panel.classList.add('open');btn.classList.add('open');}
+}
+
 function buildFilters(){
-  const subjects=["(All)",...new Set(rows.map(r=>r[cols.subject]).filter(Boolean))].sort();
-  const genders=["(All)",...new Set(rows.map(r=>r[cols.gender]).filter(Boolean))].sort();
-  el("f-subject").innerHTML=subjects.map(o=>`<option>${esc(o)}</option>`).join("");
-  el("f-gender").innerHTML=genders.map(o=>`<option>${esc(o)}</option>`).join("");
+  const subjects=[...new Set(rows.map(r=>r[cols.subject]).filter(Boolean))].sort();
+  const genders=[...new Set(rows.map(r=>r[cols.gender]).filter(Boolean))].sort();
+  buildCBD('cbd-subject',subjects);
+  buildCBD('cbd-gender',genders);
   if(cols.teacher){
     const teachers=["(All)",...new Set(rows.map(r=>r[cols.teacher]).filter(Boolean))].sort();
     el("f-teacher").innerHTML=teachers.map(o=>`<option>${esc(o)}</option>`).join("");
@@ -429,13 +510,14 @@ function clearDates(){
 }
 
 function getFiltered(){
-  const s=el("f-subject").value, g=el("f-gender").value;
+  const selSub=getCBDSelected('cbd-subject');
+  const selGen=getCBDSelected('cbd-gender');
   const t=isAdmin&&cols.teacher?el("f-teacher").value:null;
   const fv=el("f-date-from").value, tv=el("f-date-to").value;
   const from=fv?new Date(fv+"T00:00:00"):null, to=tv?new Date(tv+"T23:59:59"):null;
   return rows.filter(r=>{
-    if(s!=="(All)"&&r[cols.subject]!==s)return false;
-    if(g!=="(All)"&&r[cols.gender]!==g)return false;
+    if(selSub&&selSub.length&&!selSub.includes(r[cols.subject]))return false;
+    if(selGen&&selGen.length&&!selGen.includes(r[cols.gender]))return false;
     if(t&&t!=="(All)"&&r[cols.teacher]!==t)return false;
     if((from||to)&&cols.timestamp){const ts=parseTS(r[cols.timestamp]);if(!ts)return false;if(from&&ts<from)return false;if(to&&ts>to)return false;}
     return true;
@@ -682,6 +764,162 @@ function manualRefresh(){
   }
   setSyncStatus("⏳ Refreshing…");
   fetchAndLoad();
+}
+
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.cbd')){
+    document.querySelectorAll('.cbd-panel.open').forEach(p=>p.classList.remove('open'));
+    document.querySelectorAll('.cbd-btn.open').forEach(b=>b.classList.remove('open'));
+  }
+});
+
+// ── PDF Export ──────────────────────────────────────────────
+function loadScript(src){
+  return new Promise((resolve,reject)=>{
+    if(document.querySelector('script[src="'+src+'"]')){resolve();return;}
+    const s=document.createElement('script');s.src=src;
+    s.onload=resolve;s.onerror=()=>reject(new Error('Failed to load '+src));
+    document.head.appendChild(s);
+  });
+}
+
+function setPDFStatus(msg,col){
+  const s=el('pdf-status');
+  if(s){s.textContent=msg;s.style.color=col||'var(--muted)';}
+}
+
+async function downloadPDFReports(){
+  const selected=[...el('tr-select').options].filter(o=>o.selected).map(o=>o.value);
+  if(!selected.length){setPDFStatus('Select at least one teacher first.','var(--sd)');return;}
+
+  const btn=el('btn-pdf');
+  btn.disabled=true;
+  btn.style.opacity='0.7';
+  setPDFStatus('Loading PDF libraries…');
+
+  try{
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
+  }catch(e){
+    setPDFStatus('Could not load libraries — check internet connection.','var(--sd)');
+    btn.disabled=false;btn.style.opacity='1';return;
+  }
+
+  const zip=new JSZip();
+  const folder=zip.folder('Teacher Reports');
+  const date=new Date().toISOString().slice(0,10);
+
+  for(let i=0;i<selected.length;i++){
+    const teacher=selected[i];
+    setPDFStatus(`Generating ${i+1} of ${selected.length}: ${teacher}…`);
+    try{
+      const pdfBytes=await generateTeacherPDF(teacher);
+      const fname=teacher.replace(/[^a-z0-9 ]/gi,'').replace(/\s+/g,'-')+'-Report-'+date+'.pdf';
+      folder.file(fname,pdfBytes);
+    }catch(e){
+      console.error('PDF failed for',teacher,e);
+      setPDFStatus('Error generating '+teacher+': '+e.message,'var(--sd)');
+    }
+  }
+
+  setPDFStatus('Compressing ZIP…');
+  const zipBlob=await zip.generateAsync({type:'blob'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(zipBlob);
+  a.download='Teacher-Reports-'+date+'.zip';
+  a.click();
+  URL.revokeObjectURL(a.href);
+
+  setPDFStatus('✓ Downloaded '+selected.length+' report'+(selected.length>1?'s':'')+' as ZIP.','#2E7D4F');
+  btn.disabled=false;btn.style.opacity='1';
+  setTimeout(()=>setPDFStatus(''),5000);
+}
+
+async function generateTeacherPDF(teacher){
+  // Build a hidden off-screen container with full page styling
+  const wrap=document.createElement('div');
+  wrap.style.cssText=[
+    'position:fixed','left:-9999px','top:0',
+    'width:794px',  // A4 at 96dpi ≈ 794px
+    'background:#F4F6FA',
+    'padding:28px 32px 40px',
+    'font-family:"DM Sans","Segoe UI",sans-serif',
+    'color:#1A1F36',
+    'box-sizing:border-box'
+  ].join(';');
+
+  // Header banner
+  const hdr=document.createElement('div');
+  hdr.style.cssText='background:#1D5FA6;border-radius:8px;padding:16px 22px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between';
+  hdr.innerHTML=`<div><div style="font-size:18px;font-weight:800;color:#fff;letter-spacing:-.02em">${esc(teacher)}</div><div style="font-size:12px;color:rgba(255,255,255,.7);margin-top:3px">Student Voice Survey — Class Feedback Report</div></div><div style="font-size:12px;color:rgba(255,255,255,.6)">Generated ${new Date().toLocaleDateString('en-AU',{day:'numeric',month:'long',year:'numeric'})}</div>`;
+  wrap.appendChild(hdr);
+
+  // Clone CSS variables into the wrap so they resolve correctly
+  wrap.style.setProperty('--sd','#D64A1A');
+  wrap.style.setProperty('--d','#F5A742');
+  wrap.style.setProperty('--a','#93C6E0');
+  wrap.style.setProperty('--sa','#1D5FA6');
+  wrap.style.setProperty('--gw','#2E7D4F');
+  wrap.style.setProperty('--wc','#8B4A82');
+  wrap.style.setProperty('--bg','#F4F6FA');
+  wrap.style.setProperty('--card','#fff');
+  wrap.style.setProperty('--border','#DDE3EE');
+  wrap.style.setProperty('--text','#1A1F36');
+  wrap.style.setProperty('--muted','#6B7694');
+
+  // Build the teacher card (re-uses existing buildTRCard)
+  const card=buildTRCard(teacher);
+  // Remove the card's outer padding/border since wrap provides it
+  card.style.border='none';
+  card.style.padding='0';
+  card.style.boxShadow='none';
+  wrap.appendChild(card);
+
+  document.body.appendChild(wrap);
+
+  // Let the DOM settle — renderHoriz uses requestAnimationFrame
+  await new Promise(r=>setTimeout(r,1200));
+
+  // Capture
+  const canvas=await html2canvas(wrap,{
+    scale:2,
+    useCORS:true,
+    allowTaint:true,
+    backgroundColor:'#F4F6FA',
+    logging:false,
+    windowWidth:794,
+  });
+
+  document.body.removeChild(wrap);
+
+  // Build PDF — A4 = 210 × 297mm
+  const {jsPDF}=window.jspdf;
+  const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  const pageW=210, pageH=297, margin=0;
+  const imgW=pageW;
+  const imgH=canvas.height*(imgW/canvas.width);
+  const imgData=canvas.toDataURL('image/jpeg',0.97);
+
+  let remaining=imgH;
+  let srcY=0;
+
+  while(remaining>0){
+    const sliceH=Math.min(pageH,remaining);
+    // Create a slice canvas for multi-page
+    const sliceCanvas=document.createElement('canvas');
+    sliceCanvas.width=canvas.width;
+    sliceCanvas.height=Math.round(sliceH*(canvas.width/imgW));
+    const ctx=sliceCanvas.getContext('2d');
+    ctx.drawImage(canvas,0,Math.round(srcY*(canvas.width/imgW)),canvas.width,sliceCanvas.height,0,0,canvas.width,sliceCanvas.height);
+    const sliceData=sliceCanvas.toDataURL('image/jpeg',0.97);
+    if(srcY>0)pdf.addPage();
+    pdf.addImage(sliceData,'JPEG',margin,margin,imgW-margin*2,sliceH);
+    srcY+=sliceH;
+    remaining-=sliceH;
+  }
+
+  return pdf.output('arraybuffer');
 }
 
 // ── Auto-fetch from Google Sheets on load ──────────────────
