@@ -136,6 +136,20 @@ select[multiple]{padding:4px 8px;border:1.5px solid var(--border);border-radius:
 .sec-lbl{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:12px 0 8px}
 .strong-box{background:#E8F5E9;border:1.5px solid #A5D6A7;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px;line-height:1.5}
 .strong-box strong{color:#1B5E20}
+
+/* ── Print / Save as PDF ── */
+@media print{
+  #hdr .hdr-btns,#home-nav,#tabs,.tr-top,#pdf-status,#pub-tab,
+  #upload-zone,#pw-screen,#ov-tab,#screen-loading,#screen-mode,
+  #hnr,#hdr .btn-outline,#hdr .btn-white,#hdr #btn-admin-hdr { display:none!important }
+  #screen-dash,#tr-tab,#tr-output { display:block!important }
+  #main { padding:0!important }
+  body { background:#fff!important }
+  .tr-card { page-break-after:always!important; break-after:page!important; box-shadow:none!important; border:none!important; padding:0!important; margin:0!important }
+  .tr-card:last-child { page-break-after:avoid!important; break-after:avoid!important }
+  * { -webkit-print-color-adjust:exact!important; print-color-adjust:exact!important; color-adjust:exact!important }
+  @page { size:A4 portrait; margin:12mm 14mm }
+}
 </style>
 </head>
 <body>
@@ -187,6 +201,7 @@ select[multiple]{padding:4px 8px;border:1.5px solid var(--border);border-radius:
     <div id="tabs">
       <button class="tab active" id="tab-ov" onclick="switchTab('ov')">📊 Overview</button>
       <button class="tab" id="tab-tr" onclick="switchTab('tr')">🖨 Teacher Reports</button>
+      <button class="tab" id="tab-pub" onclick="switchTab('pub')">📤 Publish &amp; Email</button>
     </div>
 
     <!-- Overview tab -->
@@ -229,6 +244,8 @@ select[multiple]{padding:4px 8px;border:1.5px solid var(--border);border-radius:
         </div>
       </div>
 
+      <div id="small-sample-warn" style="display:none;background:#FFF3E0;border:2px solid #FF9800;border-radius:8px;padding:11px 16px;margin-bottom:14px;display:none;align-items:flex-start;gap:10px"><span style="font-size:18px;flex-shrink:0;line-height:1">⚠️</span><span style="font-size:13px;color:#BF360C;font-weight:700;line-height:1.5">Sample size is less than 10. This may not represent the class perception accurately so please analyse carefully.</span></div>
+
       <div id="legend">
         <div class="leg"><div class="leg-sw" style="background:var(--sd)"></div>Strongly disagree</div>
         <div class="leg"><div class="leg-sw" style="background:var(--d)"></div>Disagree</div>
@@ -267,7 +284,7 @@ select[multiple]{padding:4px 8px;border:1.5px solid var(--border);border-radius:
         <div style="margin-left:auto;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
           <button class="btn-sm" onclick="selAllTR()">Select All</button>
           <button class="btn-primary" onclick="window.print()">🖨 Print</button>
-          <button class="btn-primary" id="btn-pdf" onclick="downloadPDFReports()" style="background:#2E7D4F;border-color:#2E7D4F">⬇ Download PDF Reports</button>
+          <button class="btn-primary" id="btn-pdf" onclick="printReports()" style="background:#2E7D4F;border-color:#2E7D4F">🖨 Print / Save as PDF</button>
         </div>
         <div id="pdf-status" style="width:100%;font-size:12px;color:var(--muted);margin-top:6px;min-height:16px"></div>
       </div>
@@ -416,10 +433,12 @@ function switchTab(t){
   activateTab(t);
   el("ov-tab").style.display=t==="ov"?"block":"none";
   el("tr-tab").style.display=t==="tr"?"block":"none";
+  el("pub-tab").style.display=t==="pub"?"block":"none";
   if(t==="tr") renderTR();
+  if(t==="pub"){ loadConfig(); loadEmailList(); checkAutoSend(); }
 }
 function activateTab(t){
-  ["ov","tr"].forEach(id=>{const e=el("tab-"+id);if(e)e.classList.remove("active");});
+  ["ov","tr","pub"].forEach(id=>{const e=el("tab-"+id);if(e)e.classList.remove("active");});
   const e=el("tab-"+t);if(e)e.classList.add("active");
 }
 
@@ -529,6 +548,9 @@ function apply(){
   if(!rows.length)return;
   const f=getFiltered();
   el("resp-count").innerHTML=`<strong>${f.length}</strong> of <strong>${rows.length}</strong> responses`;
+  // Small sample warning on main dash
+  const warn=el("small-sample-warn");
+  if(warn){ if(f.length>0&&f.length<10){warn.style.display="flex";}else{warn.style.display="none";} }
   renderLikert(f);
   renderHoriz("gw-bars","#2E7D4F",f,cols.gw,GW_OPTS);
   renderHoriz("wc-bars","#8B4A82",f,cols.wc,WC_OPTS);
@@ -715,6 +737,14 @@ function buildTRCard(teacher){
     const inner=document.createElement("div");
     inner.style.cssText="padding:14px 18px";
 
+    // Small sample warning
+    if(cr.length<10){
+      const sw=document.createElement("div");
+      sw.style.cssText="display:flex;align-items:flex-start;gap:10px;background:#FFF3E0;border:2px solid #FF9800;border-radius:8px;padding:11px 14px;margin-bottom:12px";
+      sw.innerHTML='<span style="font-size:18px;flex-shrink:0;line-height:1">&#9888;&#65039;</span><span style="font-size:13px;color:#BF360C;font-weight:700;line-height:1.5">Sample size is less than 10. This may not represent the class perception accurately so please analyse carefully.</span>';
+      inner.appendChild(sw);
+    }
+
     // Likert bars for this class
     const lw=document.createElement("div");
     lw.style.cssText="margin-bottom:14px";
@@ -773,14 +803,22 @@ document.addEventListener('click',e=>{
   }
 });
 
-// ── PDF Export ──────────────────────────────────────────────
-function loadScript(src){
-  return new Promise((resolve,reject)=>{
-    if(document.querySelector('script[src="'+src+'"]')){resolve();return;}
-    const s=document.createElement('script');s.src=src;
-    s.onload=resolve;s.onerror=()=>reject(new Error('Failed to load '+src));
-    document.head.appendChild(s);
-  });
+// ── Print Reports ────────────────────────────────────────────
+function printReports(){
+  const selected=[...el('tr-select').options].filter(o=>o.selected).map(o=>o.value);
+  if(!selected.length){
+    setPDFStatus('Select at least one teacher above first.','var(--sd)');
+    return;
+  }
+  // Make sure tr-tab is visible for printing
+  el('tr-tab').style.display='block';
+  // Ensure all selected teachers are rendered
+  renderTR();
+  setPDFStatus('Opening print dialog — select "Save as PDF" as the destination…','#2E7D4F');
+  setTimeout(()=>{
+    window.print();
+    setTimeout(()=>setPDFStatus(''),5000);
+  },300);
 }
 
 function setPDFStatus(msg,col){
@@ -788,138 +826,316 @@ function setPDFStatus(msg,col){
   if(s){s.textContent=msg;s.style.color=col||'var(--muted)';}
 }
 
-async function downloadPDFReports(){
-  const selected=[...el('tr-select').options].filter(o=>o.selected).map(o=>o.value);
-  if(!selected.length){setPDFStatus('Select at least one teacher first.','var(--sd)');return;}
 
-  const btn=el('btn-pdf');
-  btn.disabled=true;
-  btn.style.opacity='0.7';
-  setPDFStatus('Loading PDF libraries…');
+// ══════════════════════════════════════════════════════
+// PUBLISH & EMAIL — GitHub + EmailJS
+// ══════════════════════════════════════════════════════
+const GH_USER  = "crusoeapps";
+const GH_REPO  = "teacherdata";
+const GH_TOKEN_DEFAULT = "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";
+const EJ_SVC   = "service_bx9scad";
+const EJ_TPL   = "template_ysq0vxa";
+const EJ_KEY_DEFAULT   = "3YP9mpUMSr9zdLkML";
+const PAGES_BASE = "https://crusoeapps.github.io/teacherdata";
+const STORAGE_TEACHERS = "svd_teachers";
+const STORAGE_CFG      = "svd_cfg";
+const STORAGE_LASTSENT = "svd_lastsent";
+const STORAGE_AUTOSEND = "svd_autosend";
+const TEACHERS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQVWZ5n2msgDM3m91XC5Ppo3QLvYEUEjT0ECbH431IdWfaYTcNZpeLKeDUCKy5SfTdipBMdI2FYgIf9/pub?output=csv";
+const DEFAULT_TEACHERS = [{"name": "Alistair Sharp", "email": "alistair.sharp@education.vic.gov.au"}, {"name": "Annie Parker", "email": "annie.parker@education.vic.gov.au"}, {"name": "Ben Caruana", "email": "ben.caruana@education.vic.gov.au"}, {"name": "Billy Rogers", "email": "billy.rogers@education.vic.gov.au"}, {"name": "Bruce Cen", "email": "bruce.cen@education.vic.gov.au"}, {"name": "Callum Crisp", "email": "callum.crisp@education.vic.gov.au"}, {"name": "Callum Hart", "email": "callum.hart@education.vic.gov.au"}, {"name": "Carrisa McIntyre", "email": "carissa.mcintyre@education.vic.gov.au"}, {"name": "Cathy Boerema", "email": "catherine.boerema@education.vic.gov.au"}, {"name": "Chantelle McMillin", "email": "chantelle.mcmillin@education.vic.gov.au"}, {"name": "Chris Kellow", "email": "christopher.kellow@education.vic.gov.au"}, {"name": "Chris Magilton", "email": "christopher.magilton@education.vic.gov.au"}, {"name": "Cleo Luvara", "email": "cleo.luvara@education.vic.gov.au"}, {"name": "Danielle Hirth", "email": "danielle.hirth@education.vic.gov.au"}, {"name": "Duane Anderson", "email": "duane.anderson@education.vic.gov.au"}, {"name": "Elizabeth Ogilvy", "email": "elizabeth.ogilvy@education.vic.gov.au"}, {"name": "Ellen McGrath", "email": "ellen.mcgrath@education.vic.gov.au"}, {"name": "Jackie Crawford", "email": "jackie.crawford@education.vic.gov.au"}, {"name": "James Forsyth", "email": "james.forsyth@education.vic.gov.au"}, {"name": "Jan Mayhead", "email": "jan.mayhead@education.vic.gov.au"}, {"name": "Jason Carter", "email": "jason.carter@education.vic.gov.au"}, {"name": "Jemma Schultz", "email": "jemma.schultz@education.vic.gov.au"}, {"name": "Jennifer Caneva-Black", "email": "jen.caneva-black@education.vic.gov.au"}, {"name": "Kathy Jenkins", "email": "kathy.jenkins@education.vic.gov.au"}, {"name": "Katie Riddington", "email": "katie.riddington@education.vic.gov.au"}, {"name": "Kaylene Matotek", "email": "kaylene.matotek@education.vic.gov.au"}, {"name": "Laura Johnstone", "email": "laura.johnstone2@education.vic.gov.au"}, {"name": "Mark Wrzesinski", "email": "mark.wrzesinski@education.vic.gov.au"}, {"name": "Michael Lennon", "email": "michael.lennon@education.vic.gov.au"}, {"name": "Nadine Harper", "email": "nadine.harper@education.vic.gov.au"}, {"name": "Narelle Burgess", "email": "narelle.burgess@education.vic.gov.au"}, {"name": "Pam Giofrelle", "email": "pam.giofrelle@education.vic.gov.au"}, {"name": "Peter McDonald", "email": "peter.mcdonald2@education.vic.gov.au"}, {"name": "Sam Burdett", "email": "samuel.burdett@education.vic.gov.au"}, {"name": "Sam Polack", "email": "sam.polock@education.vic.gov.au"}, {"name": "Sandrah Lowenthal", "email": "sandrah.lowenthal@education.vic.gov.au"}, {"name": "Tom Lamb", "email": "thomas.lamb@education.vic.gov.au"}];
 
-  try{
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
-  }catch(e){
-    setPDFStatus('Could not load libraries — check internet connection.','var(--sd)');
-    btn.disabled=false;btn.style.opacity='1';return;
-  }
-
-  const zip=new JSZip();
-  const folder=zip.folder('Teacher Reports');
-  const date=new Date().toISOString().slice(0,10);
-
-  for(let i=0;i<selected.length;i++){
-    const teacher=selected[i];
-    setPDFStatus(`Generating ${i+1} of ${selected.length}: ${teacher}…`);
-    try{
-      const pdfBytes=await generateTeacherPDF(teacher);
-      const fname=teacher.replace(/[^a-z0-9 ]/gi,'').replace(/\s+/g,'-')+'-Report-'+date+'.pdf';
-      folder.file(fname,pdfBytes);
-    }catch(e){
-      console.error('PDF failed for',teacher,e);
-      setPDFStatus('Error generating '+teacher+': '+e.message,'var(--sd)');
-    }
-  }
-
-  setPDFStatus('Compressing ZIP…');
-  const zipBlob=await zip.generateAsync({type:'blob'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(zipBlob);
-  a.download='Teacher-Reports-'+date+'.zip';
-  a.click();
-  URL.revokeObjectURL(a.href);
-
-  setPDFStatus('✓ Downloaded '+selected.length+' report'+(selected.length>1?'s':'')+' as ZIP.','#2E7D4F');
-  btn.disabled=false;btn.style.opacity='1';
-  setTimeout(()=>setPDFStatus(''),5000);
+// ── Config (token stored locally) ──
+function getConfig(){
+  try{const c=localStorage.getItem(STORAGE_CFG);return c?JSON.parse(c):{token:GH_TOKEN_DEFAULT,ejKey:EJ_KEY_DEFAULT};}catch(e){return{token:GH_TOKEN_DEFAULT,ejKey:EJ_KEY_DEFAULT};}
+}
+function saveConfig(){
+  const cfg={token:el("cfg-token").value.trim()||GH_TOKEN_DEFAULT,ejKey:el("cfg-ejkey").value.trim()||EJ_KEY_DEFAULT};
+  localStorage.setItem(STORAGE_CFG,JSON.stringify(cfg));
+  const s=el("cfg-status");s.textContent="✓ Saved";s.style.color="var(--gw)";
+  setTimeout(()=>s.textContent="",2500);
+}
+function loadConfig(){
+  const cfg=getConfig();
+  if(el("cfg-token"))el("cfg-token").placeholder=cfg.token?"Token saved (hidden)":"ghp_...";
+  if(el("cfg-ejkey"))el("cfg-ejkey").placeholder=cfg.ejKey?"Key saved (hidden)":"3YP9mp...";
 }
 
-async function generateTeacherPDF(teacher){
-  // Build a hidden off-screen container with full page styling
-  const wrap=document.createElement('div');
-  wrap.style.cssText=[
-    'position:fixed','left:-9999px','top:0',
-    'width:794px',  // A4 at 96dpi ≈ 794px
-    'background:#F4F6FA',
-    'padding:28px 32px 40px',
-    'font-family:"DM Sans","Segoe UI",sans-serif',
-    'color:#1A1F36',
-    'box-sizing:border-box'
-  ].join(';');
+// ── Teacher email list ──
+function getTeachers(){
+  try{
+    const t=localStorage.getItem(STORAGE_TEACHERS);
+    return t?JSON.parse(t):DEFAULT_TEACHERS;
+  }catch(e){return DEFAULT_TEACHERS;}
+}
 
-  // Header banner
-  const hdr=document.createElement('div');
-  hdr.style.cssText='background:#1D5FA6;border-radius:8px;padding:16px 22px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between';
-  hdr.innerHTML=`<div><div style="font-size:18px;font-weight:800;color:#fff;letter-spacing:-.02em">${esc(teacher)}</div><div style="font-size:12px;color:rgba(255,255,255,.7);margin-top:3px">Student Voice Survey — Class Feedback Report</div></div><div style="font-size:12px;color:rgba(255,255,255,.6)">Generated ${new Date().toLocaleDateString('en-AU',{day:'numeric',month:'long',year:'numeric'})}</div>`;
-  wrap.appendChild(hdr);
-
-  // Clone CSS variables into the wrap so they resolve correctly
-  wrap.style.setProperty('--sd','#D64A1A');
-  wrap.style.setProperty('--d','#F5A742');
-  wrap.style.setProperty('--a','#93C6E0');
-  wrap.style.setProperty('--sa','#1D5FA6');
-  wrap.style.setProperty('--gw','#2E7D4F');
-  wrap.style.setProperty('--wc','#8B4A82');
-  wrap.style.setProperty('--bg','#F4F6FA');
-  wrap.style.setProperty('--card','#fff');
-  wrap.style.setProperty('--border','#DDE3EE');
-  wrap.style.setProperty('--text','#1A1F36');
-  wrap.style.setProperty('--muted','#6B7694');
-
-  // Build the teacher card (re-uses existing buildTRCard)
-  const card=buildTRCard(teacher);
-  // Remove the card's outer padding/border since wrap provides it
-  card.style.border='none';
-  card.style.padding='0';
-  card.style.boxShadow='none';
-  wrap.appendChild(card);
-
-  document.body.appendChild(wrap);
-
-  // Let the DOM settle — renderHoriz uses requestAnimationFrame
-  await new Promise(r=>setTimeout(r,1200));
-
-  // Capture
-  const canvas=await html2canvas(wrap,{
-    scale:2,
-    useCORS:true,
-    allowTaint:true,
-    backgroundColor:'#F4F6FA',
-    logging:false,
-    windowWidth:794,
+function fetchTeachersFromSheet(onDone){
+  const ctrl=new AbortController();
+  const timeout=setTimeout(()=>ctrl.abort(),8000);
+  fetch(TEACHERS_URL,{cache:"no-cache",signal:ctrl.signal})
+    .then(r=>{clearTimeout(timeout);if(!r.ok)throw new Error("HTTP "+r.status);return r.text();})
+    .then(csv=>{
+      const lines=csv.trim().split("\n").slice(1); // skip header
+      const teachers=lines.map(line=>{
+        const parts=line.split(",");
+        const name=parts[0].replace(/^"|"$/g,"").trim();
+        const email=parts.slice(1).join(",").replace(/^"|"$/g,"").trim().toLowerCase();
+        return name&&email?{name,email}:null;
+      }).filter(Boolean);
+      if(!teachers.length) throw new Error("No teachers found");
+      localStorage.setItem(STORAGE_TEACHERS,JSON.stringify(teachers));
+      if(onDone) onDone(teachers);
+    })
+    .catch(err=>{
+      clearTimeout(timeout);
+      // Fall back to stored/default list
+      if(onDone) onDone(getTeachers());
+    });
+}
+function saveEmailList(){
+  const tbody=el("email-tbody");
+  const teachers=[...tbody.querySelectorAll("tr")].map(row=>{
+    const cells=[...row.querySelectorAll("input[type=text]")];
+    return{name:cells[0]?cells[0].value.trim():"",email:cells[1]?cells[1].value.trim():""};
+  }).filter(t=>t.name&&t.email);
+  localStorage.setItem(STORAGE_TEACHERS,JSON.stringify(teachers));
+  const s=el("email-save-status");s.textContent="✓ Saved "+teachers.length+" teachers";s.style.color="var(--gw)";
+  setTimeout(()=>s.textContent="",3000);
+}
+function loadEmailList(){
+  const tbody=el("email-tbody");
+  tbody.innerHTML="<tr><td colspan='4' style='padding:12px;color:var(--muted);font-size:13px'>⏳ Fetching teacher list from Google Sheets…</td></tr>";
+  fetchTeachersFromSheet(teachers=>{
+    tbody.innerHTML="";
+    if(teachers.length) teachers.forEach(t=>addTeacherRow(t.name,t.email));
+    else addTeacherRow();
+    const s=el("email-save-status");
+    if(s){s.textContent="✓ "+teachers.length+" teachers loaded from Google Sheets";s.style.color="var(--gw)";setTimeout(()=>s.textContent="",3000);}
   });
+}
+function addTeacherRow(name="",email=""){
+  const tbody=el("email-tbody");
+  const slug=nameToSlug(name);
+  const url=name?PAGES_BASE+"/"+slug+".html":"—";
+  const tr=document.createElement("tr");
+  tr.innerHTML=`
+    <td style="padding:5px 8px;border-bottom:1px solid var(--border)"><input type="text" value="${esc(name)}" placeholder="Jason Carter" style="width:100%;padding:5px 8px;border:1.5px solid var(--border);border-radius:5px;font-size:13px;font-family:inherit" onchange="updateRowURL(this)"></td>
+    <td style="padding:5px 8px;border-bottom:1px solid var(--border)"><input type="text" value="${esc(email)}" placeholder="jason.carter@crusoecollege.vic.edu.au" style="width:100%;padding:5px 8px;border:1.5px solid var(--border);border-radius:5px;font-size:13px;font-family:inherit"></td>
+    <td style="padding:5px 8px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);font-family:monospace;word-break:break-all" class="row-url">${name?'<a href="'+url+'" target="_blank" style="color:var(--sa)">'+url+'</a>':"—"}</td>
+    <td style="padding:5px 8px;border-bottom:1px solid var(--border);text-align:center"><button onclick="this.closest('tr').remove()" style="border:none;background:none;color:var(--sd);font-size:16px;cursor:pointer;line-height:1">×</button></td>`;
+  tbody.appendChild(tr);
+}
+function updateRowURL(input){
+  const row=input.closest("tr");
+  const name=input.value.trim();
+  const slug=nameToSlug(name);
+  const url=name?PAGES_BASE+"/"+slug+".html":"—";
+  const urlCell=row.querySelector(".row-url");
+  if(urlCell)urlCell.innerHTML=name?`<a href="${url}" target="_blank" style="color:var(--sa)">${url}</a>`:"—";
+}
+function nameToSlug(name){
+  return name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+}
 
-  document.body.removeChild(wrap);
+// ── CSV paste ──
+function importEmails(){
+  el("csv-modal").style.display="flex";
+  setTimeout(()=>el("csv-paste").focus(),50);
+}
+function closeCSVModal(){el("csv-modal").style.display="none";}
+function processCSVPaste(){
+  const lines=el("csv-paste").value.trim().split("\n");
+  const tbody=el("email-tbody");
+  tbody.innerHTML="";
+  lines.forEach(line=>{
+    const parts=line.split(",");
+    if(parts.length>=2){
+      const name=parts[0].trim();
+      const email=parts.slice(1).join(",").trim();
+      if(name&&email)addTeacherRow(name,email);
+    }
+  });
+  closeCSVModal();
+  saveEmailList();
+}
 
-  // Build PDF — A4 = 210 × 297mm
-  const {jsPDF}=window.jspdf;
-  const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
-  const pageW=210, pageH=297, margin=0;
-  const imgW=pageW;
-  const imgH=canvas.height*(imgW/canvas.width);
-  const imgData=canvas.toDataURL('image/jpeg',0.97);
+// ── GitHub push ──
+async function pushToGitHub(filename, content, token){
+  const url=`https://api.github.com/repos/${GH_USER}/${GH_REPO}/contents/${filename}`;
+  // Check if file exists (need SHA to update)
+  let sha=null;
+  try{
+    const check=await fetch(url,{headers:{"Authorization":"token "+token,"Accept":"application/vnd.github.v3+json"}});
+    if(check.ok){const data=await check.json();sha=data.sha;}
+  }catch(e){}
+  const body={message:"Update "+filename,content:btoa(unescape(encodeURIComponent(content)))};
+  if(sha)body.sha=sha;
+  const res=await fetch(url,{method:"PUT",headers:{"Authorization":"token "+token,"Accept":"application/vnd.github.v3+json","Content-Type":"application/json"},body:JSON.stringify(body)});
+  if(!res.ok){const err=await res.json();throw new Error(err.message||"GitHub error "+res.status);}
+  return await res.json();
+}
 
-  let remaining=imgH;
-  let srcY=0;
+// ── EmailJS send ──
+function loadEmailJS(){
+  return new Promise((resolve,reject)=>{
+    if(window.emailjs){resolve();return;}
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js";
+    s.onload=()=>{window.emailjs.init({publicKey:getConfig().ejKey});resolve();};
+    s.onerror=()=>reject(new Error("Could not load EmailJS"));
+    document.head.appendChild(s);
+  });
+}
 
-  while(remaining>0){
-    const sliceH=Math.min(pageH,remaining);
-    // Create a slice canvas for multi-page
-    const sliceCanvas=document.createElement('canvas');
-    sliceCanvas.width=canvas.width;
-    sliceCanvas.height=Math.round(sliceH*(canvas.width/imgW));
-    const ctx=sliceCanvas.getContext('2d');
-    ctx.drawImage(canvas,0,Math.round(srcY*(canvas.width/imgW)),canvas.width,sliceCanvas.height,0,0,canvas.width,sliceCanvas.height);
-    const sliceData=sliceCanvas.toDataURL('image/jpeg',0.97);
-    if(srcY>0)pdf.addPage();
-    pdf.addImage(sliceData,'JPEG',margin,margin,imgW-margin*2,sliceH);
-    srcY+=sliceH;
-    remaining-=sliceH;
+async function sendEmail(toEmail, teacherName, reportUrl, month){
+  await loadEmailJS();
+  return emailjs.send(EJ_SVC, EJ_TPL, {
+    teacher_name: teacherName,
+    report_url: reportUrl,
+    month: month,
+    sender_name: "Student Voice Survey Dashboard"
+  }, {publicKey:getConfig().ejKey});
+}
+
+// ── Log helper ──
+function pubLog(msg, colour){
+  const log=el("pub-log");
+  if(!log)return;
+  const line=document.createElement("div");
+  line.style.color=colour||"inherit";
+  line.textContent=msg;
+  log.appendChild(line);
+  log.scrollTop=log.scrollHeight;
+}
+function setProgress(pct){
+  const bar=el("pub-bar");
+  if(bar)bar.style.width=pct+"%";
+}
+function showBanner(msg,type){
+  const b=el("pub-banner");
+  if(!b)return;
+  b.textContent=msg;
+  b.style.display="block";
+  b.style.background=type==="ok"?"#E8F5E9":type==="err"?"#FFEBEE":"#FFF3E0";
+  b.style.color=type==="ok"?"#1B5E20":type==="err"?"#B71C1C":"#BF360C";
+  b.style.border="1.5px solid "+(type==="ok"?"#A5D6A7":type==="err"?"#EF9A9A":"#FF9800");
+}
+
+// ── Main publish function ──
+async function publishAndEmail(publishOnly){
+  const teachers=getTeachers();
+  if(!teachers.length){showBanner("No teachers in the list. Add names and emails first.","warn");return;}
+  if(!rows.length){showBanner("No survey data loaded. Please load data first.","warn");return;}
+
+  const cfg=getConfig();
+  if(!cfg.token){showBanner("No GitHub token set. Add it in Connection Settings above.","err");return;}
+
+  el("pub-progress").style.display="block";
+  el("pub-log").innerHTML="";
+  setProgress(0);
+
+  const month=new Date().toLocaleDateString("en-AU",{month:"long",year:"numeric"});
+  const total=teachers.length;
+  let ok=0,fail=0;
+
+  for(let i=0;i<teachers.length;i++){
+    const t=teachers[i];
+    const slug=nameToSlug(t.name);
+    const filename=slug+".html";
+    const reportUrl=PAGES_BASE+"/"+filename;
+    setProgress(Math.round((i/total)*90));
+    pubLog("["+(i+1)+"/"+total+"] "+t.name+"…");
+
+    // Find this teacher's rows
+    const teacherRows=cols.teacher?rows.filter(r=>r[cols.teacher]===t.name):[];
+    if(!teacherRows.length){
+      pubLog("  ⚠ No survey data found for this name — skipping","#E65100");
+      fail++;continue;
+    }
+
+    // Build HTML
+    const reportHTML=buildTeacherHTMLString(t.name,new Date().toISOString().slice(0,10));
+
+    // Push to GitHub
+    try{
+      await pushToGitHub(filename,reportHTML,cfg.token);
+      pubLog("  ✓ Published → "+reportUrl,"#2E7D4F");
+    }catch(e){
+      pubLog("  ✗ GitHub error: "+e.message,"#D64A1A");
+      fail++;continue;
+    }
+
+    // Send email
+    if(!publishOnly&&t.email){
+      try{
+        await sendEmail(t.email,t.name,reportUrl,month);
+        pubLog("  ✉ Email sent to "+t.email,"#2E7D4F");
+      }catch(e){
+        pubLog("  ⚠ Email failed: "+e.message+" (report still published)","#E65100");
+      }
+    }
+    ok++;
+    await new Promise(r=>setTimeout(r,400)); // Rate limit buffer
   }
 
-  return pdf.output('arraybuffer');
+  setProgress(100);
+  // Push teachers.json index to GitHub
+  try{
+    const index={updated:new Date().toISOString(),teachers:teachers.map(t=>({name:t.name,url:PAGES_BASE+"/"+nameToSlug(t.name)+".html"}))};
+    await pushToGitHub("teachers.json",JSON.stringify(index,null,2),cfg.token);
+    pubLog("  ✓ Published teachers index (teachers.json)","#2E7D4F");
+  }catch(e){pubLog("  ⚠ Could not push index: "+e.message,"#E65100");}
+
+  if(!publishOnly)localStorage.setItem(STORAGE_LASTSENT,new Date().toISOString());
+  checkAutoSend();
+
+  const summary=ok+" report"+(ok!==1?"s":"")+" published"+(publishOnly?"":" and emailed")+(fail?" · "+fail+" failed":"");
+  showBanner((fail?"⚠ ":"✓ ")+summary,fail?"warn":"ok");
+  pubLog("─── Done: "+summary+" ───",fail?"#E65100":"#2E7D4F");
+}
+
+function publishOnly(){publishAndEmail(true);}
+
+async function testEmail(){
+  const teachers=getTeachers();
+  if(!teachers.length){showBanner("Add at least one teacher first.","warn");return;}
+  const t=teachers[0];
+  try{
+    await sendEmail(t.email,t.name,PAGES_BASE+"/"+nameToSlug(t.name)+".html","Test — "+new Date().toLocaleDateString("en-AU",{month:"long",year:"numeric"}));
+    showBanner("✓ Test email sent to "+t.email,"ok");
+  }catch(e){
+    showBanner("✗ Email failed: "+e.message,"err");
+  }
+}
+
+// ── Auto-send scheduler ──
+function saveAutoSend(){
+  localStorage.setItem(STORAGE_AUTOSEND,el("auto-send-toggle").checked?"1":"0");
+}
+function checkAutoSend(){
+  const enabled=localStorage.getItem(STORAGE_AUTOSEND)==="1";
+  const toggle=el("auto-send-toggle");
+  if(toggle)toggle.checked=enabled;
+  const lastSent=localStorage.getItem(STORAGE_LASTSENT);
+  const lbl=el("last-sent-label");
+  if(lbl&&lastSent)lbl.textContent="Last sent: "+new Date(lastSent).toLocaleDateString("en-AU",{day:"numeric",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"});
+  const autoStatus=el("auto-send-status");
+  const today=new Date();
+  if(autoStatus){
+    if(enabled)autoStatus.innerHTML='<span style="color:var(--gw);font-weight:700">✓ Auto-send is ON — will prompt on the 28th of each month</span>';
+    else autoStatus.innerHTML='<span style="color:var(--muted)">Auto-send is off</span>';
+  }
+  // Check if today is the 28th and we haven't sent this month
+  if(enabled&&isAdmin&&today.getDate()===28){
+    if(!lastSent||new Date(lastSent).getMonth()!==today.getMonth()||new Date(lastSent).getFullYear()!==today.getFullYear()){
+      // Show prompt banner
+      setTimeout(()=>{
+        if(confirm("📅 Today is the 28th — send monthly teacher reports now?")){
+          switchTab("pub");
+          publishAndEmail(false);
+        }
+      },1500);
+    }
+  }
 }
 
 // ── Auto-fetch from Google Sheets on load ──────────────────
